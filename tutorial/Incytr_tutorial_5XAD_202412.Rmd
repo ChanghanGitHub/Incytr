@@ -1,0 +1,814 @@
+---
+title: "Incytr_tutorial_5XAD_202412"
+author: "Changhan"
+date: "2024-12-09"
+output: html_document
+---
+
+################################################################################
+Note: This code is unpublic and intended for use within the [Incytr/Signaling networks discovery paper] project only.
+Please refrain from sharing it outside the project team or using it for any other projects without prior approval from the author.
+################################################################################
+
+# Preparation
+
+libraries
+```{r}
+library(ggplot2)
+library(plotrix)
+library(parallel)
+library(doParallel)
+```
+
+
+RNA-seq data
+```{r}
+# path to the folder
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/CST_scRNAseq_data")
+Data.input <- readRDS("Az_8clusteres.RDS") 
+```
+
+Marker genes
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/DG_analysis")
+Allmarkers = read.csv("Allmarkers_18groups.csv")
+```
+
+Multimodel data
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/CST_processed_data")
+
+pr_5X = read.csv("processed_pr_5X_v2.csv")
+pr_WT = read.csv("processed_pr_WT_v2.csv")
+ps_5X = read.csv("processed_ps_5X_v2.csv")
+ps_WT = read.csv("processed_ps_WT_v2.csv")
+py_5X = read.csv("processed_py_5X_v2.csv")
+py_WT = read.csv("processed_py_WT_v2.csv")
+
+kldata = read.csv("kldata.csv")
+```
+
+Incytr database
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/Database")
+# load the exFINDER database (can also download the updated database from the exFINDER github page)
+load("DB_Layer1_mouse_filtered.rda")
+load("DB_Layer2_mouse_filtered.rda")
+load("DB_Layer3_mouse_filtered.rda")
+
+DB.M <- list()
+DB.M[[1]] <- DB_Layer1_mouse_filtered
+DB.M[[2]] <- DB_Layer2_mouse_filtered
+DB.M[[3]] <- DB_Layer3_mouse_filtered
+```
+
+# Testing
+
+The following chunk can be used for testing (only analyze the signaling pathways between two selected clusters).
+Permutation test = 10 
+```{r}
+start.time <- Sys.time()
+
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/output")
+
+cell.groups = levels(Data.input$Type)
+
+j = 3
+i = 1
+# k =13
+
+Sender.group = cell.groups[i]
+Receiver.group = cell.groups[j]
+# set the Scenario
+Scenario = 4
+# input genes are DEG
+DG.Sender <- Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Sender.group, "_5X"),paste0(Sender.group, "_WT") )]
+DG.Receiver <- Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Receiver.group, "_5X"),paste0(Receiver.group, "_WT") )]
+
+# Creat object
+Incytr <- create_Incytr(object = Data.input@assays$RNA@data,
+                        meta = Data.input@meta.data,
+                        sender = Sender.group,
+                        receiver = Receiver.group,
+                        group.by = "Type",
+                        condition = c("5X", "WT"),
+                        assay = NULL,
+                        do.sparse = T)
+
+# Infer paths
+Incytr <- pathway_inference(Incytr,
+                            DB = DB.M,
+                            gene.use_Sender = DG.Sender,
+                            gene.use_Receiver = DG.Receiver,
+                            ligand = NULL,
+                            receptor = NULL,
+                            em = NULL,
+                            target = NULL)
+
+# Calculate the average expression level
+Incytr <- Expr_bygroup(Incytr,
+                       mean_method = NULL)
+
+# Predict signaling prob. (from transcriptomics data)
+# "cutoff_SigWeight = 0.10": keep the pathways that SigWeight>=0.10 in at least one condition
+try.function <- try(     Incytr <- Cal_SigProb(Incytr, K = 0.5, N = 2, cutoff_SigProb = 0.10,
+                                               correction = 0.001, q = NULL) )
+if( "try-error" %in% class(try.function) ){
+  if( isTRUE(grepl(text, try.function[1])) ){
+    next
+  }
+}
+
+# Integrate the multiomics data (depend on the Scenario)
+if(Scenario == 1){ # no multimodel data
+  Incytr <- Integr_multiomics(Incytr, 
+                              pr.data_condition1 = NULL,
+                              pr.data_condition2 = NULL,
+                              pr.correction = NULL,
+                              pr.q = NULL,
+                              ps.data_condition1 = NULL,
+                              ps.data_condition2 = NULL,
+                              ps.correction = NULL,
+                              ps.q = NULL,
+                              py.data_condition1 = NULL,
+                              py.data_condition2 = NULL,
+                              py.correction = NULL,
+                              py.q = NULL)
+}else if(Scenario == 2){ # proteomics data
+  Incytr <- Integr_multiomics(Incytr, 
+                              pr.data_condition1 = pr_5X,
+                              pr.data_condition2 = pr_WT,
+                              pr.correction = NULL,
+                              pr.q = NULL,
+                              ps.data_condition1 = NULL,
+                              ps.data_condition2 = NULL,
+                              ps.correction = NULL,
+                              ps.q = NULL,
+                              py.data_condition1 = NULL,
+                              py.data_condition2 = NULL,
+                              py.correction = NULL,
+                              py.q = NULL)
+}else if(Scenario == 3){ # ps data
+  Incytr <- Integr_multiomics(Incytr, 
+                              pr.data_condition1 = pr_5X,
+                              pr.data_condition2 = pr_WT,
+                              pr.correction = NULL,
+                              pr.q = NULL,
+                              ps.data_condition1 = ps_5X,
+                              ps.data_condition2 = ps_WT,
+                              ps.correction = NULL,
+                              ps.q = NULL,
+                              py.data_condition1 = NULL,
+                              py.data_condition2 = NULL,
+                              py.correction = NULL,
+                              py.q = NULL)
+}else if(Scenario == 4){# py data
+  Incytr <- Integr_multiomics(Incytr, 
+                              pr.data_condition1 = pr_5X,
+                              pr.data_condition2 = pr_WT,
+                              pr.correction = NULL,
+                              pr.q = NULL,
+                              ps.data_condition1 = ps_5X,
+                              ps.data_condition2 = ps_WT,
+                              ps.correction = NULL,
+                              ps.q = NULL,
+                              py.data_condition1 = py_5X,
+                              py.data_condition2 = py_WT,
+                              py.correction = NULL,
+                              py.q = NULL)
+}
+
+# Calculate the final score
+# "cutoff_RNA_score": keep the pathways that "abs(RNA_score)>=cutoff_RNA_score"
+try.function <- try(  Incytr <- Pathway_evaluation(Incytr, score.weight = NULL, k_logi = 2, style = NULL, abs.value = NULL,
+                                                   cutoff_TPRS = NULL) )
+if( "try-error" %in% class(try.function) ){
+  if( isTRUE(grepl(text, try.function[1])) ){
+    next
+  }
+}
+
+Incytr <- Integr_kinasedata(Incytr,
+                            kldata = kldata,
+                            mean_method = NULL,
+                            cell_group = levels(Incytr@meta$Type),
+                            fold_threshold = 10)
+
+# Combine the Kinase score with previous calculated "final score"
+# "cutoff_final_score = 0.2": keep the pathways that "abs(final_score)>=0.2"
+try.function <- try( Incytr <- Cal_PRS(Incytr, KPRS.weight = 0.5,
+                                       cutoff_PRS = 0.2) )
+if( "try-error" %in% class(try.function) ){
+  if( isTRUE(grepl(text, try.function[1])) ){
+    next
+  }
+}
+
+# "cutoff_p_value = 0.1": keep the pathways that "p_value<=0.1" in at least one condition
+try.function <- try( Incytr <- Permutation_test(Incytr,
+                                                nboot = 10,
+                                                seed.use = 1L,
+                                                mean_method = NULL,
+                                                cutoff_p_value = 0.1) )
+if( "try-error" %in% class(try.function) ){
+  if( isTRUE(grepl(text, try.function[1])) ){
+    next
+  }
+}
+
+# infer SrK (a seperate data.frame which includes both SiK and SrK, saved at Incytr@kl.explore)
+Incytr <- Kinase_exploration(Incytr,
+                             kldata = kldata,
+                             mean_method = NULL, 
+                             cell_group = levels(Incytr@meta$Type),
+                             fold_threshold = 10)
+
+# Export the results (does not include the SrK analysis results)
+output <- Export_results(Incytr,
+                         indicator = TRUE)
+
+end.time <- Sys.time()
+time.1 <- end.time - start.time
+time.1
+```
+
+# Identify highly expressed genes (>75th percentile)
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/CST_processed_data")
+
+cell.groups = levels(Data.input$Type)
+
+HEG.df = data.frame(gene_symbol = as.character(), ave.exp = as.numeric(), cluster = as.character(), condition = as.character())
+
+for (k in 1:length(conditions)) {
+  for (i in 1:length(cell.groups) ) {
+    # seperate the data by the conditions
+    HGData.input = subset(x = Data.input, subset = condition == conditions[k])
+    
+    # for select cluster, find genes that: average expression level >= cutoff_exp
+    HE <- Find_highexp_gene(object = HGData.input@assays$RNA@data,
+                            meta = HGData.input@meta.data,
+                            group.by = "Type",
+                            group.select = cell.groups[i],
+                            geneuse = NULL,
+                            cutoff_percentile = 0.75,
+                            mean_method = NULL)
+    
+    df.new = data.frame(gene_symbol = HE[ , 1], ave.exp = HE[ , 2], cluster = cell.groups[i], condition = conditions[k])
+    HEG.df = rbind(HEG.df, df.new)
+  }
+}
+
+write.csv(HEG.df, file="HE_gene_075_121024.csv")
+```
+
+
+# Identify differentially (proteomics) expressed genes (fold change>1)
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/CST_processed_data")
+
+pr.gene_output = proteomics_gene(pr.data_condition1 = pr_5X, 
+                                 pr.data_condition2 = pr_WT,
+                                 cell_group =  levels(Data.input$Type),
+                                 style = "aFC",
+                                 cutoff = 1,
+                                 pr.correction = 0.00001,
+                                 pr.q = NULL)
+
+write.csv(pr.gene_output, file="proteomics_gene_121024.csv")
+```
+
+
+Load HEG & proteomics genes
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/CST_processed_data")
+
+HEG.df = read.csv("HE_gene_075_121024.csv")
+pr.gene_output = read.csv("proteomics_gene_121024.csv")
+```
+
+################################################################################
+
+# Incytr analysis 1: input genes = DEG + HEG
+
+
+```{r}
+text = "No signaling pathway inferred using current filter, the filter has been ignored."
+```
+
+
+Vareables to store pairwise-analysis results
+```{r}
+Pairwise_pathway_table = list()
+Pairwise_kinase_table = list()
+```
+
+
+```{r, include=FALSE}
+start.time <- Sys.time()
+
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/output_DEG_HEG")
+
+cell.groups = levels(Data.input$Type)
+
+k = 1
+
+for (i in 1:length(cell.groups) ) {
+  for (j in 1:length(cell.groups) ) {
+    # select the sender & receiver groups
+    Sender.group = cell.groups[i]
+    Receiver.group = cell.groups[j]
+    # set the Scenario
+    Scenario = 4
+    # input genes are DEG
+    DG.Sender <- Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Sender.group, "_5X"),paste0(Sender.group, "_WT") )]
+    DG.Receiver <- Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Receiver.group, "_5X"),paste0(Receiver.group, "_WT") )]
+    
+    ############################################################################
+    # Add highly expressed genes
+    HG.Sender <- HEG.df$gene_symbol[HEG.df$cluster == Sender.group]
+    HG.Receiver <- HEG.df$gene_symbol[HEG.df$cluster == Receiver.group]
+    
+    DG.Sender <- unique(c(DG.Sender, HG.Sender))
+    DG.Receiver <- unique(c(DG.Receiver, HG.Receiver))
+    
+    # Create object
+    Incytr <- create_Incytr(object = Data.input@assays$RNA@data,
+                            meta = Data.input@meta.data,
+                            sender = Sender.group,
+                            receiver = Receiver.group,
+                            group.by = "Type",
+                            condition = c("5X", "WT"),
+                            assay = NULL,
+                            do.sparse = T)
+    
+    # Infer paths
+    Incytr <- pathway_inference(Incytr,
+                                DB = DB.M,
+                                gene.use_Sender = DG.Sender,
+                                gene.use_Receiver = DG.Receiver,
+                                ligand = NULL,
+                                receptor = NULL,
+                                em = NULL,
+                                target = NULL)
+    
+    # Calculate the average expression level
+    Incytr <- Expr_bygroup(Incytr,
+                           mean_method = NULL)
+    
+    # Predict signaling prob. (from transcriptomics data)
+    # "cutoff_SigWeight = 0.10": keep the pathways that SigWeight>=0.10 in at least one condition
+    try.function <- try(     Incytr <- Cal_SigProb(Incytr, K = 0.5, N = 2, cutoff_SigProb = 0.10,
+                                                   correction = 0.001, q = NULL) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    # Fold change of each gene between conditions (optional, does not affect the score calculation, can be commented out to save time)
+    # Incytr <- Cal_scFC(Incytr, 
+    #                    count.matrix = Data.input@assays$RNA@counts,
+    #                    pseudocount = TRUE, 
+    #                    fitType='mean')
+    
+    # Integrate the multiomics data (depend on the Scenario)
+    if(Scenario == 1){ # no multimodel data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = NULL,
+                                  pr.data_condition2 = NULL,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = NULL,
+                                  ps.data_condition2 = NULL,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = NULL,
+                                  py.data_condition2 = NULL,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }else if(Scenario == 2){ # proteomics data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = pr_5X,
+                                  pr.data_condition2 = pr_WT,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = NULL,
+                                  ps.data_condition2 = NULL,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = NULL,
+                                  py.data_condition2 = NULL,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }else if(Scenario == 3){ # ps data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = pr_5X,
+                                  pr.data_condition2 = pr_WT,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = ps_5X,
+                                  ps.data_condition2 = ps_WT,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = NULL,
+                                  py.data_condition2 = NULL,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }else if(Scenario == 4){# py data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = pr_5X,
+                                  pr.data_condition2 = pr_WT,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = ps_5X,
+                                  ps.data_condition2 = ps_WT,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = py_5X,
+                                  py.data_condition2 = py_WT,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }
+    
+    # Calculate the final score
+    # "cutoff_RNA_score": keep the pathways that "abs(RNA_score)>=cutoff_RNA_score"
+    try.function <- try(  Incytr <- Pathway_evaluation(Incytr, score.weight = NULL, k_logi = 2, style = NULL, abs.value = NULL,
+                                                       cutoff_TPRS = NULL) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    Incytr <- Integr_kinasedata(Incytr,
+                                kldata = kldata,
+                                mean_method = NULL,
+                                cell_group = levels(Incytr@meta$Type),
+                                fold_threshold = 10)
+    
+    # Combine the Kinase score with previous calculated "final score"
+    # "cutoff_final_score = 0.2": keep the pathways that "abs(final_score)>=0.2"
+    try.function <- try( Incytr <- Cal_PRS(Incytr, KPRS.weight = 0.5,
+                                           cutoff_PRS = 0.2) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    # "cutoff_p_value = 0.1": keep the pathways that "p_value<=0.1" in at least one condition
+    try.function <- try( Incytr <- Permutation_test(Incytr,
+                                                    nboot = 100,
+                                                    seed.use = 1L,
+                                                    mean_method = NULL,
+                                                    cutoff_p_value = 0.1) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    # infer SrK (a seperate data.frame which includes both SiK and SrK, saved at Incytr@kl.explore)
+    Incytr <- Kinase_exploration(Incytr,
+                                 kldata = kldata,
+                                 mean_method = NULL, 
+                                 cell_group = levels(Incytr@meta$Type),
+                                 fold_threshold = 10)
+    
+    # Export the results (does not include the SrK analysis results)
+    output <- Export_results(Incytr,
+                             indicator = TRUE)
+    
+    Pairwise_pathway_table[[k]] = output
+    Pairwise_kinase_table[[k]] = Incytr@kl.explore
+    names(Pairwise_pathway_table)[k] = paste0(Sender.group, "_to_", Receiver.group)
+    names(Pairwise_kinase_table)[k] = paste0(Sender.group, "_to_", Receiver.group)
+    
+    k = k+1
+    
+    write.csv(output, file=paste0("sce4_DE_HE_", Incytr@sender, "_to_", Incytr@receiver, "_121024.csv"))
+    
+    if(nrow(Incytr@kl.explore)>0){
+      write.csv(Incytr@kl.explore, file=paste0("sce4_DE_HE_", Incytr@sender, "_to_", Incytr@receiver, "_kinase_121024.csv"))
+    }
+  }
+}
+
+end.time <- Sys.time()
+time.1 <- end.time - start.time
+```
+
+Check the running time
+```{r}
+time.1
+```
+
+
+Merge into one table and save
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/output_DEG_HEG")
+
+# "select.top = NULL": for each sender-receiver pair, save ALL pathways
+dfmerge1 <- Merge_results(results.list = Pairwise_pathway_table, cutoff = NULL, group = "Both", select.top = NULL)
+write.csv(dfmerge1, file=paste0("sce4_DE_HE_Allpathway_table_121024.csv"))
+
+# "select.top = 300": for each sender-receiver pair, select the top 300 pathways with highest & lowest final scores, respectively
+dfmerge2 <- Merge_results(results.list = Pairwise_pathway_table, cutoff = NULL, group = "Both", select.top = 300)
+write.csv(dfmerge2, file=paste0("sce4_DE_HE_Top300_table_121024.csv"))
+
+# save the results just in case we need to regenerate the "Pairwise_pathway_table" table
+saveRDS(Pairwise_pathway_table, "sce4_DE_HE_Pairwise_pathway_table_121024.rds")
+saveRDS(Pairwise_kinase_table, "sce4_DE_HE_Pairwise_kinase_table_121024.rds")
+```
+
+################################################################################
+
+# Incytr analysis 2: input genes = DEG + HEG + proteomics + kinases
+
+## Identify highly expressed kinases
+```{r}
+gene.measured = rownames(Data.input@assays$RNA@data)
+kinase.measured = unique(kldata[kldata$gene %in% gene.measured & kldata$motif.geneName %in% gene.measured, ]$motif.geneName)
+
+Data.kinase = subset(Data.input, features = kinase.measured)
+
+Kinase_Exp = dataprepare_Expr_bygroup(object = Data.kinase@assays$RNA@data, 
+                                      meta = Data.kinase@meta.data, 
+                                      group.by = "Type", 
+                                      conditions = c("5X", "WT"),
+                                      omics = NULL,
+                                      mean_method = NULL)
+```
+
+
+
+Vareables to store pairwise-analysis results
+```{r}
+Pairwise_pathway_table = list()
+Pairwise_kinase_table = list()
+```
+
+
+```{r, include=FALSE}
+start.time <- Sys.time()
+
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/output_DEG_HEG_proteomicsgene_kinase")
+
+cell.groups = levels(Data.input$Type)
+
+k = 1
+
+for (i in 1:length(cell.groups) ) {
+  for (j in 1:length(cell.groups) ) {
+    # select the sender & receiver groups
+    Sender.group = cell.groups[i]
+    Receiver.group = cell.groups[j]
+    # set the Scenario
+    Scenario = 4
+    # input genes are DEG
+    DG.Sender <- unique(Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Sender.group, "_5X"),paste0(Sender.group, "_WT") )])
+    DG.Receiver <- unique(Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Receiver.group, "_5X"),paste0(Receiver.group, "_WT") )])
+    
+    ############################################################################
+    # Add highly expressed genes
+    HG.Sender <- HEG.df$gene_symbol[HEG.df$cluster == Sender.group ]
+    HG.Receiver <- HEG.df$gene_symbol[HEG.df$cluster == Receiver.group ]
+    
+    DG.Sender <- unique(c(DG.Sender, HG.Sender))
+    DG.Receiver <- unique(c(DG.Receiver, HG.Receiver))
+    
+    ############################################################################
+    # Add proteomics genes
+    pr_gene.Sender = pr.gene_output$gene_symbol[ pr.gene_output$cluster == Sender.group ]
+    pr_gene.Receiver = pr.gene_output$gene_symbol[ pr.gene_output$cluster == Receiver.group ]
+    
+    ############################################################################
+    # check if the total number of genes is over 2000
+    DG.Sender_new = unique(c(DG.Sender, pr_gene.Sender))
+    if( length( DG.Sender_new )>2000 ){
+      D = length( DG.Sender_new ) - 2000
+      D1 = round(length(DG.Sender)/(length(DG.Sender)+length(pr_gene.Sender))*D)
+      D2 = round(length(pr_gene.Sender)/(length(DG.Sender)+length(pr_gene.Sender))*D)
+      DG.Sender = DG.Sender[1:(length(DG.Sender)-D)]
+      pr_gene.Sender = pr_gene.Sender[1:(length(pr_gene.Sender)-D)]
+      DG.Sender_new = unique(c(DG.Sender, pr_gene.Sender))
+    }
+    
+        
+    DG.Receiver_new = unique(c(DG.Receiver, pr_gene.Receiver))
+    if( length( DG.Receiver_new )>2000 ){
+      D = length( DG.Receiver_new ) - 2000
+      D1 = round(length(DG.Receiver)/(length(DG.Receiver)+length(pr_gene.Receiver))*D)
+      D2 = round(length(pr_gene.Receiver)/(length(DG.Receiver)+length(pr_gene.Receiver))*D)
+      DG.Receiver = DG.Receiver[1:(length(DG.Receiver)-D)]
+      pr_gene.Receiver = pr_gene.Receiver[1:(length(pr_gene.Receiver)-D)]
+      DG.Receiver_new = unique(c(DG.Receiver, pr_gene.Receiver))
+    }
+    
+    ############################################################################
+    # add kinases
+    kinase_gene.Sender = data.frame(gene_symbol = Kinase_Exp[[1]]$gene_symbol,
+                                    condition1 = Kinase_Exp[[1]][ , Sender.group ],
+                                    condition2 = Kinase_Exp[[2]][ , Sender.group ])
+    kinase_gene.Sender = kinase_gene.Sender[ (kinase_gene.Sender$condition1 >0 | 
+                                                kinase_gene.Sender$condition2 >0), ]$gene_symbol
+    
+    kinase_gene.Receiver = data.frame(gene_symbol = Kinase_Exp[[1]]$gene_symbol,
+                                    condition1 = Kinase_Exp[[1]][ , Receiver.group ],
+                                    condition2 = Kinase_Exp[[2]][ , Receiver.group ])
+    kinase_gene.Receiver = kinase_gene.Receiver[ (kinase_gene.Receiver$condition1 >0 | 
+                                                    kinase_gene.Receiver$condition2 >0), ]$gene_symbol
+    
+    DG.Sender_new = unique(c(DG.Sender_new, kinase_gene.Sender))
+    DG.Receiver_new = unique(c(DG.Receiver_new, kinase_gene.Receiver))
+    
+    # Create object
+    Incytr <- create_Incytr(object = Data.input@assays$RNA@data,
+                            meta = Data.input@meta.data,
+                            sender = Sender.group,
+                            receiver = Receiver.group,
+                            group.by = "Type",
+                            condition = c("5X", "WT"),
+                            assay = NULL,
+                            do.sparse = T)
+    
+    # Infer paths
+    Incytr <- pathway_inference(Incytr,
+                                DB = DB.M,
+                                gene.use_Sender = DG.Sender_new,
+                                gene.use_Receiver = DG.Receiver_new,
+                                ligand = NULL,
+                                receptor = NULL,
+                                em = NULL,
+                                target = NULL)
+    
+    # Calculate the average expression level
+    Incytr <- Expr_bygroup(Incytr,
+                           mean_method = NULL)
+    
+    # Predict signaling prob. (from transcriptomics data)
+    # "cutoff_SigWeight = 0.10": keep the pathways that SigWeight>=0.10 in at least one condition
+    try.function <- try(     Incytr <- Cal_SigProb(Incytr, K = 0.5, N = 2, cutoff_SigProb = 0.10,
+                                                   correction = 0.001, q = NULL) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    # Fold change of each gene between conditions (optional, does not affect the score calculation, can be commented out to save time)
+    # Incytr <- Cal_scFC(Incytr, 
+    #                    count.matrix = Data.input@assays$RNA@counts,
+    #                    pseudocount = TRUE, 
+    #                    fitType='mean')
+    
+    # Integrate the multiomics data (depend on the Scenario)
+    if(Scenario == 1){ # no multimodel data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = NULL,
+                                  pr.data_condition2 = NULL,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = NULL,
+                                  ps.data_condition2 = NULL,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = NULL,
+                                  py.data_condition2 = NULL,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }else if(Scenario == 2){ # proteomics data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = pr_5X,
+                                  pr.data_condition2 = pr_WT,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = NULL,
+                                  ps.data_condition2 = NULL,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = NULL,
+                                  py.data_condition2 = NULL,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }else if(Scenario == 3){ # ps data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = pr_5X,
+                                  pr.data_condition2 = pr_WT,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = ps_5X,
+                                  ps.data_condition2 = ps_WT,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = NULL,
+                                  py.data_condition2 = NULL,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }else if(Scenario == 4){# py data
+      Incytr <- Integr_multiomics(Incytr, 
+                                  pr.data_condition1 = pr_5X,
+                                  pr.data_condition2 = pr_WT,
+                                  pr.correction = NULL,
+                                  pr.q = NULL,
+                                  ps.data_condition1 = ps_5X,
+                                  ps.data_condition2 = ps_WT,
+                                  ps.correction = NULL,
+                                  ps.q = NULL,
+                                  py.data_condition1 = py_5X,
+                                  py.data_condition2 = py_WT,
+                                  py.correction = NULL,
+                                  py.q = NULL)
+    }
+    
+    # Calculate the final score
+    # "cutoff_RNA_score": keep the pathways that "abs(RNA_score)>=cutoff_RNA_score"
+    try.function <- try(  Incytr <- Pathway_evaluation(Incytr, score.weight = NULL, k_logi = 2, style = NULL, abs.value = NULL,
+                                                       cutoff_TPRS = NULL) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    Incytr <- Integr_kinasedata(Incytr,
+                                kldata = kldata,
+                                mean_method = NULL,
+                                cell_group = levels(Incytr@meta$Type),
+                                fold_threshold = 10)
+    
+    # Combine the Kinase score with previous calculated "final score"
+    # "cutoff_final_score = 0.2": keep the pathways that "abs(final_score)>=0.2"
+    try.function <- try( Incytr <- Cal_PRS(Incytr, KPRS.weight = 0.5,
+                                           cutoff_PRS = 0.2) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    # "cutoff_p_value = 0.1": keep the pathways that "p_value<=0.1" in at least one condition
+    try.function <- try( Incytr <- Permutation_test(Incytr,
+                                                    nboot = 100,
+                                                    seed.use = 1L,
+                                                    mean_method = NULL,
+                                                    cutoff_p_value = 0.1) )
+    if( "try-error" %in% class(try.function) ){
+      if( isTRUE(grepl(text, try.function[1])) ){
+        next
+      }
+    }
+    
+    # infer SrK (a seperate data.frame which includes both SiK and SrK, saved at Incytr@kl.explore)
+    Incytr <- Kinase_exploration(Incytr,
+                                 kldata = kldata,
+                                 mean_method = NULL, 
+                                 cell_group = levels(Incytr@meta$Type),
+                                 fold_threshold = 10)
+    
+    # Export the results (does not include the SrK analysis results)
+    output <- Export_results(Incytr,
+                             indicator = TRUE)
+    
+    Pairwise_pathway_table[[k]] = output
+    Pairwise_kinase_table[[k]] = Incytr@kl.explore
+    names(Pairwise_pathway_table)[k] = paste0(Sender.group, "_to_", Receiver.group)
+    names(Pairwise_kinase_table)[k] = paste0(Sender.group, "_to_", Receiver.group)
+    
+    k = k+1
+    
+    write.csv(output, file=paste0("sce4_DE_HE_proteomics_kinase_", Incytr@sender, "_to_", Incytr@receiver, "_121024.csv"))
+    
+    if(nrow(Incytr@kl.explore)>0){
+      write.csv(Incytr@kl.explore, 
+                file=paste0("sce4_DE_HE_proteomics_kinase_", Incytr@sender, "_to_", Incytr@receiver, "_kinase_121024.csv"))
+    }
+  }
+}
+
+end.time <- Sys.time()
+time.1 <- end.time - start.time
+```
+
+Check the running time
+```{r}
+time.1
+```
+
+Merge into one table and save
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/output_DEG_HEG_proteomicsgene_kinase")
+
+# "select.top = NULL": for each sender-receiver pair, save ALL pathways
+dfmerge1 <- Merge_results(results.list = Pairwise_pathway_table, cutoff = NULL, group = "Both", select.top = NULL)
+write.csv(dfmerge1, file=paste0("sce4_DE_HE_proteomics_kinase_Allpathway_table_121024.csv"))
+
+# "select.top = 300": for each sender-receiver pair, select the top 300 pathways with highest & lowest final scores, respectively
+dfmerge2 <- Merge_results(results.list = Pairwise_pathway_table, cutoff = NULL, group = "Both", select.top = 300)
+write.csv(dfmerge2, file=paste0("sce4_DE_HE_proteomics_kinase_Top300_table_121024.csv"))
+
+# save the results just in case we need to regenerate the "Pairwise_pathway_table" table
+saveRDS(Pairwise_pathway_table, "sce4_DE_HE_proteomics_kinase_Pairwise_pathway_table_121024.rds")
+saveRDS(Pairwise_kinase_table, "sce4_DE_HE_proteomics_kinase_Pairwise_kinase_table_121024.rds")
+```

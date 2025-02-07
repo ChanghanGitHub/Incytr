@@ -1,0 +1,238 @@
+---
+title: "Incytr_Benchmarking_exFINDER"
+author: "Changhan"
+date: "2024-11-11"
+output: html_document
+---
+
+# Part I: Load databases, input datasets
+
+Load the required libraries
+```{r message=FALSE,warning=FALSE}
+library(exFINDER)
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(RColorBrewer)
+library(dplyr)
+library(pheatmap)
+library(ggraph)
+library(forcats)
+library(stringr)
+
+library(tidyverse)
+library(caret)
+```
+
+Load exFINDER database
+```{r}
+setwd("C:/Users/chang/Documents/Research_2021_Modeling/Project1/R Package/exFINDER/data")
+# load exFINDER database
+load("LR_layer1_mouse.rda")
+load("RTF_layer2_mouse.rda")
+load("TFT_layer3_mouse.rda")
+
+exFINDER.M <- list()
+exFINDER.M[[1]] <- LR_layer1_mouse
+exFINDER.M[[2]] <- RTF_layer2_mouse
+exFINDER.M[[3]] <- TFT_layer3_mouse
+```
+
+Incytr database
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/Database")
+# load the exFINDER database (can also download the updated database from the exFINDER github page)
+load("DB_Layer1_mouse_filtered.rda")
+load("DB_Layer2_mouse_filtered.rda")
+load("DB_Layer3_mouse_filtered.rda")
+
+DB.M <- list()
+DB.M[[1]] <- DB_Layer1_mouse_filtered
+DB.M[[2]] <- DB_Layer2_mouse_filtered
+DB.M[[3]] <- DB_Layer3_mouse_filtered
+```
+
+RNA-seq data
+```{r message=FALSE,warning=FALSE}
+# path to the folder
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/CST_scRNAseq_data")
+Data.input <- readRDS("Az_8clusteres.RDS") 
+```
+
+For exFINDER, we should run the analysis for each condition seperately (although the results are similar).
+```{r}
+Data.input.5X = subset(Data.input, subset = condition == "5X")
+Data.input.WT = subset(Data.input, subset = condition == "WT")
+```
+
+Marker genes
+```{r message=FALSE,warning=FALSE}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/DG_analysis")
+Allmarkers = read.csv("Allmarkers_18groups.csv")
+```
+
+################################################################################
+
+# Part II: Set-up inputs
+
+```{r}
+cell.groups = levels(Data.input$Type)
+conditions = c("5X", "WT")
+db.names = c("exFINDER-DB", "Incytr-DB")
+```
+
+
+################################################################################
+# Part III: exFINDER analysis (use both exFINDER-DB & Incytr-DB)
+
+Prepare the inputs for exFINDER analysis
+```{r}
+# 5X
+exp.data.5X <- Data.input.5X@assays$RNA@data
+meta.data.5X <- Data.input.5X@meta.data
+
+# WT
+exp.data.WT <- Data.input.WT@assays$RNA@data
+meta.data.WT <- Data.input.WT@meta.data
+```
+
+For benchmarking against exFINDER, we perform the following analysis: (1) infer the pathways using exFINDER-DB only; (2) predict the signaling probability using 5X and WT data, respectively; (3) keep the pathways with signaling probability >= 0.10 (same as what we used in the Incytr analysis).
+```{r, warning=FALSE}
+start.time <- Sys.time()
+
+k = 1
+
+exFINDER.output = list()
+
+for (i in 1:length(cell.groups) ) {
+  for (j in 1:length(cell.groups) ) {
+    
+    Sender.group = cell.groups[i]
+    Receiver.group = cell.groups[j]
+    
+    # in exFINDER analysis, the target genes are DG.Receiver
+    DG.Sender <- unique(Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Sender.group, "_5X"),paste0(Sender.group, "_WT") )])
+    DG.Receiver <- unique(Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Receiver.group, "_5X"),paste0(Receiver.group, "_WT") )])
+    
+    ############################################################################
+    # Add highly expressed genes
+    HG.Sender <- HEG.df$gene_symbol[HEG.df$cluster == Sender.group]
+    HG.Receiver <- HEG.df$gene_symbol[HEG.df$cluster == Receiver.group]
+    
+    DG.Sender <- unique(c(DG.Sender, HG.Sender))
+    DG.Receiver <- unique(c(DG.Receiver, HG.Receiver))
+    
+    target = DG.Receiver
+    
+    ltGRN <- get_ltGRN(Target = target, DB = exFINDER.M)
+    
+    output.condition = list()
+   
+    for (n in 1:2) {  # analysis under different conditions
+      if(n==1){
+        # condition 1
+        exp.data <- exp.data.5X
+        meta.data <- meta.data.5X
+      }else{
+        # condition 2
+        exp.data <- exp.data.WT
+        meta.data <- meta.data.WT
+      }
+      
+      # infer exSigNet 
+      exSigNet <- get_exSigNet(Graph = ltGRN,
+                               Ligands = DG.Sender, # the ligands must be potential external signals
+                               Exp.Data = exp.data,
+                               Meta.Data = meta.data,
+                               par.cutoff = c(0, 0), 
+                               AG.R = Receiver.group,  
+                               AG.TF = Receiver.group)
+      # calculate the expression levels
+      exSigNet <- get_NodeValue(Graph = exSigNet,
+                                Exp.Data = exp.data,
+                                Meta.Data = meta.data,
+                                AG.R = Receiver.group,
+                                AG.TF = Receiver.group,
+                                AG.T = Receiver.group,
+                                Exp.ExData = exp.data,
+                                Meta.ExData = meta.data,
+                                AG.ExData = Sender.group)
+      # predict signaling strengths
+      exSigNet <- get_EdgeWeight(Graph = exSigNet, 
+                                 Kh = 0.5)
+      
+      ########################################################################
+      # below are converting the analysis outputs to the four components pathways
+      # saperate the three layers of interactions
+      x = exSigNet$Graph.Edge
+      x1 = x[ x$from.Role == "Ligand", c("from", "to", "Weight")]
+      x2 = x[ x$from.Role == "Receptor", c("from", "to", "Weight")]
+      x3 = x[ x$from.Role == "TF", c("from", "to", "Weight")]
+      
+      # merge layer 1&2
+      y = full_join(x1, x2, by = join_by(to == from), multiple = "all" )
+      colnames(y) = c("Ligand", "Receptor", "Weight.1", "TF", "Weight.2")
+      # merge layer 1&2&3
+      y = full_join(y, x3, by = join_by(TF == from), multiple = "all" )
+      colnames(y)[6:7] = c("Target", "Weight.3")
+      
+      y$Path = paste0(y$Ligand, "*", y$Receptor, "*", y$TF, "*", y$Target)
+      y = y[ , c("Ligand", "Receptor", "TF", "Target", "Path", "Weight.1", "Weight.2", "Weight.3")]
+      
+      # filter the pathways: (1) ligands must be in the DG.Sender; (2) the rest must be in the DG.Receiver
+      y = y[( y$Ligand %in% DG.Sender 
+              & y$Receptor %in% DG.Receiver 
+              & y$TF %in% DG.Receiver ), ]
+      
+      # remove pathways with duplicated genes
+      boolean_dup <- apply(y[ , c("Ligand", "Receptor", "TF", "Target")], 1, duplicated)
+      index = apply(boolean_dup, 2, sum)
+      y$index = index
+      y = y[y$index == 0, 1:8]
+      
+      # calculate the signaling probability (this formula is the same as Incytr)
+      y$SigProb = y$Weight.1*y$Weight.2*y$Weight.3
+      
+      ## scale the exFINDER inferred signaling probability
+      #v = y$SigProb
+      #v.pre <- preProcess(as.data.frame(v), method=c("range"))
+      #v.scaled <- predict(v.pre, as.data.frame(v))
+      #y$SigProb.2 = v.scaled$v
+      
+      # keep the pathways which SigProb >= 0.10 
+      y2 = y[y$SigProb>=0.10, ]
+      
+      output.condition[[n]] = y2
+    }
+    names(output.condition) = conditions
+
+    exFINDER.output[[k]] = output.condition
+    names(exFINDER.output)[k] = paste0(Sender.group, "_to_", Receiver.group)
+    k = k+1
+  }
+}
+
+end.time <- Sys.time()
+time.1 <- end.time - start.time
+```
+
+
+Check the running time
+```{r}
+time.1
+```
+
+Save the results
+```{r}
+setwd("C:/Users/chang/Documents/Research_2023/CST_project/CST_Project/Incytr_Benchmarking")
+
+# save the results
+saveRDS(exFINDER.output, "DE_HE_exFINDER_121024.rds")
+```
+
+
+Once finished running the pairwise analysis using exFINDER, we can compare it to the following three Incytr analysis results: (1) DEG; (2) DEG + Proteomics genes; (3) DEG + Proteomics genes + HEG, and for each sender-receiver pair, the following questions should be answered:
+ 1. For those exFINDER-only pathways, how many of them are non-differentially expressed?
+ 2. For those Incytr-only pathways, how many of them are recorded in the exFINDER-DB but were not picked up by exFINDER?
+
+
