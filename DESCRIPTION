@@ -32,3 +32,5 @@ Suggests:
     roxygen2, 
     Seurat
 VignetteBuilder: knitr
+URL: https://github.com/ChanghanGitHub/Incytr
+BugReports: https://github.com/ChanghanGitHub/Incytr/issues
