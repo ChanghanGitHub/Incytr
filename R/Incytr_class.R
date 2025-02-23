@@ -4,6 +4,9 @@
 #' When inputting an data matrix, genes should be in rows and cells in columns. rownames and colnames should be included.
 #'
 #' @importFrom methods setClassUnion
+#' @importClassesFrom Matrix dgCMatrix
+#' @importClassesFrom data.table data.table
+setClassUnion(name = 'AnyMatrix', members = c("matrix", "dgCMatrix"))
 setClassUnion(name = 'AnyFactor', members = c("factor", "list"))
 
 #' The key slots used in the Incytr object are described below.
@@ -35,8 +38,8 @@ setClassUnion(name = 'AnyFactor', members = c("factor", "list"))
 #' @importFrom Rcpp evalCpp
 #' @importFrom methods setClass
 object <- methods::setClass("Incytr",
-                            slots = c(data.raw = 'matrix',
-                                      data = 'matrix',
+                            slots = c(data.raw = 'AnyMatrix',
+                                      data = 'AnyMatrix',
                                       expr.bygroup = 'list',
                                       pathways = "data.frame",
                                       pathways_5steps = "data.frame",
@@ -78,6 +81,7 @@ object <- methods::setClass("Incytr",
 #' @return an Incytr object
 #' @export
 #' @importFrom methods as new
+#' @importFrom Matrix t
 create_Incytr <- function(object,
                           meta = NULL,
                           sender = NULL,
@@ -88,10 +92,12 @@ create_Incytr <- function(object,
                           do.sparse = T){
 
   # data matrix as input
-  message("Create an Incytr object from a data matrix")
-  data <- object
-  if (is.null(group.by)) {
-    group.by <- "labels"
+  if (inherits(x = object, what = c("matrix", "Matrix", "dgCMatrix"))) {
+    message("Create an Incytr object from a data matrix")
+    data <- object
+    if (is.null(group.by)) {
+      group.by <- "labels"
+    }
   }
 
   if ( is.null(sender) | is.null(receiver) ){

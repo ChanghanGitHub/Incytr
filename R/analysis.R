@@ -19,9 +19,11 @@ Find_highexp_gene <- function(object,
                               mean_method = NULL){
 
   # data matrix as input
-  data <- object
-  if (is.null(group.by)) {
-    group.by <- "labels"
+  if (inherits(x = object, what = c("matrix", "Matrix", "dgCMatrix"))) {
+    data <- object
+    if (is.null(group.by)) {
+      group.by <- "labels"
+    }
   }
 
   if (!is.null(meta)) {
@@ -125,9 +127,11 @@ dataprepare_Expr_bygroup <- function(object,
                                      mean_method = NULL){
 
   # data matrix as input
-  data <- object
-  if (is.null(group.by)) {
-    group.by <- "labels"
+  if (inherits(x = object, what = c("matrix", "Matrix", "dgCMatrix"))) {
+    data <- object
+    if (is.null(group.by)) {
+      group.by <- "labels"
+    }
   }
 
   if (!is.null(meta)) {
@@ -437,6 +441,8 @@ pathway_inference <- function(object,
 #'
 #' @param object Incytr object
 #' @param mean_method the method name used to calculate the average expressed value. NULL is the default value, and the arithmetic mean is used if it is "mean".
+#'
+#' @importFrom forcats data.table
 #'
 #' @return a data frame
 #' @export

@@ -9,3 +9,10 @@ Incytr identifies cell signaling pathways from scRNA-seq data alone or integrate
 <img width="536" alt="image" src="https://github.com/user-attachments/assets/2c20a90c-7c73-4ef4-b4ea-346ce70910b9" />
 
 
+# Installation
+
+Incytr R package can be easily installed from Github using devtools:  
+
+```
+devtools::install_github("ChanghanGitHub/Incytr")
+```
