@@ -1,0 +1,178 @@
+---
+title: "Analysis_5XAD"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Analysis_5XAD}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+
+```{r setup}
+library(Incytr)
+```
+
+
+Load the data, including: scRNA-seq, proteomics, phosphorylation (ps & py) data, marker gene list, and kinase library
+```{r}
+# the processed 5XAD data (Seurat object) can be downloaded from Zenodo
+Data.input <- readRDS("5xad_data_Seurat.RDS") 
+
+# the following data is available in the folder "5XAD_data"
+# marker gene list
+Allmarkers = read.csv("Allmarkers_18groups.csv") 
+# proteomics & phosphorylation data
+pr_5X = read.csv("processed_pr_5X_v2.csv")
+pr_WT = read.csv("processed_pr_WT_v2.csv")
+ps_5X = read.csv("processed_ps_5X_v2.csv")
+ps_WT = read.csv("processed_ps_WT_v2.csv")
+py_5X = read.csv("processed_py_5X_v2.csv")
+py_WT = read.csv("processed_py_WT_v2.csv")
+# kinase library
+kldata = read.csv("kldata_pspy.csv")
+```
+
+Load the IncytrDB -- available in the folder "IncytrDB"
+```{r}
+load("DB_Layer1_mouse_filtered.rda")
+load("DB_Layer2_mouse_filtered.rda")
+load("DB_Layer3_mouse_filtered.rda")
+
+DB.M <- list()
+DB.M[[1]] <- DB_Layer1_mouse_filtered
+DB.M[[2]] <- DB_Layer2_mouse_filtered
+DB.M[[3]] <- DB_Layer3_mouse_filtered
+```
+
+
+As an example, we analyze the communication from Astrocytes to Microglia, which are two cell types in the 5XAD dataset. First we can check the cell types recorded in the data:
+```{r}
+levels(Data.input$Type)
+```
+
+In the analysis, we use the marker genes of these two cell types in both conditions.
+```{r}
+# set the sender and receiver cell groups
+Sender.group = "Astrocytes"
+Receiver.group = "Microglia"
+
+# define the input genes -- both sender and receiver genes
+DG.Sender <- Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Sender.group, "_5X"),paste0(Sender.group, "_WT") )]
+DG.Receiver <- Allmarkers$gene[Allmarkers$cluster %in% c( paste0(Receiver.group, "_5X"),paste0(Receiver.group, "_WT") )]
+```
+
+Create Incytr object
+```{r}
+Incytr <- create_Incytr(object = Data.input@assays$RNA@data,
+                        meta = Data.input@meta.data,
+                        sender = Sender.group,
+                        receiver = Receiver.group,
+                        group.by = "Type",
+                        condition = c("5X", "WT"),
+                        assay = NULL,
+                        do.sparse = T)
+```
+
+Infer "L-R-EM-T" pathways: ligands are sender genes, the rest are receiver genes
+```{r}
+Incytr <- pathway_inference(Incytr,
+                            DB = DB.M,
+                            gene.use_Sender = DG.Sender,
+                            gene.use_Receiver = DG.Receiver,
+                            ligand = NULL,
+                            receptor = NULL,
+                            em = NULL,
+                            target = NULL)
+```
+
+Calculate the gene expression level in eac cell type and condition
+```{r}
+Incytr <- Expr_bygroup(Incytr,
+                       mean_method = NULL)
+```
+
+Infer the signaling probability for each pathway
+```{r}
+Incytr <- Cal_SigProb(Incytr, K = 0.5, N = 2, cutoff_SigProb = 0.0, correction = 0.001, q = NULL)
+```
+
+
+Compute the fold change for each gene between conditions. This step is optional and will not affect the pathway evaluation results. 
+```{r}
+Incytr <- Cal_scFC(Incytr,
+                   count.matrix = Data.input@assays$RNA@counts,
+                   pseudocount = TRUE,
+                   fitType='mean')
+```
+
+
+Integrate the proteomics and phosphorylation data
+```{r}
+Incytr <- Integr_multiomics(Incytr, 
+                            pr.data_condition1 = pr_5X,
+                            pr.data_condition2 = pr_WT,
+                            pr.correction = NULL,
+                            pr.q = NULL,
+                            ps.data_condition1 = ps_5X,
+                            ps.data_condition2 = ps_WT,
+                            ps.correction = NULL,
+                            ps.q = NULL,
+                            py.data_condition1 = py_5X,
+                            py.data_condition2 = py_WT,
+                            py.correction = NULL,
+                            py.q = NULL)
+```
+
+Pathway evaluation: TPDS, PPDS, PhPDS, and multimodal score.
+```{r}
+Incytr <- Pathway_evaluation(Incytr, score.weight = NULL, k_logi = 2, style = NULL, abs.value = NULL,
+                                                   cutoff_TPDS = NULL) 
+```
+
+Infer SiKs, compute the EI
+```{r}
+Incytr <- Integr_kinasedata(Incytr,
+                            kldata = kldata,
+                            mean_method = NULL,
+                            cell_group = levels(Incytr@meta$Type),
+                            fold_threshold = 10)
+```
+
+Pathway evaluation: PDS, it will be the same as the multimodal score if the kinase analysis is not performed (or no SiK found)
+```{r}
+Incytr <- Cal_PDS(Incytr, KPDS.weight = 0.5,
+                  cutoff_PDS = 0.0)
+```
+
+Permutation test, for demonstration we only run the test for 10 times, ideally it should be at least 100. Although this step will not affect the pathway evaluation results, the inferred p-value can help us to find statistically-significant pathways.
+```{r}
+Incytr <- Permutation_test(Incytr,
+                           nboot = 10,
+                           seed.use = 1L,
+                           mean_method = NULL,
+                           cutoff_p_value = 0.1)
+```
+
+Explore the SrKs, will not affect the pathway evaluation results.
+```{r}
+Incytr <- Kinase_exploration(Incytr,
+                             kldata = kldata,
+                             mean_method = NULL, 
+                             cell_group = levels(Incytr@meta$Type),
+                             fold_threshold = 10)
+```
+
+Export the results as a table
+```{r}
+output = Export_results(Incytr, indicator = TRUE)
+
+head(output)
+```
+

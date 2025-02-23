@@ -757,7 +757,7 @@ Cal_scFC <- function(object, count.matrix = NULL,
     object@data.raw = count.matrix
   }
 
-  # library(DESeq2)
+  library(DESeq2)
   # gene lists
   gene.sender = unique(object@pathways$Ligand)
   gene.receiver = unique(c(object@pathways$Receptor, object@pathways$EM, object@pathways$Target))

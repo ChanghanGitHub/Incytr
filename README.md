@@ -16,3 +16,10 @@ Incytr R package can be easily installed from Github using devtools:
 ```
 devtools::install_github("ChanghanGitHub/Incytr")
 ```
+
+
+# Tutorial
+
+## Incytr analysis
+
+The tutorial is aviable at "vignettes/Analysis_5XAD.Rmd"
