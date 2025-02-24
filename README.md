@@ -23,3 +23,8 @@ devtools::install_github("ChanghanGitHub/Incytr")
 ## Incytr analysis
 
 The tutorial is aviable at "vignettes/Analysis_5XAD.Rmd"
+
+## Resuits visualization
+
+An open-source Python package "Incytr-viz" has been developed to provide interactive visualization solutions: https://github.com/cellsignal/incytr-viz
+
