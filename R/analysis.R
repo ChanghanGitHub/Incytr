@@ -774,16 +774,20 @@ Cal_scFC <- function(object, count.matrix = NULL,
   if(length(gene.sender)==1){
     Data.sender = as.matrix(Data.sender)
     Data.sender = t(Matrix(Data.sender))
+    rownames(Data.sender) = gene.sender
   }else if(length(gene.receiver)==1){
     Data.receiver = as.matrix(Data.receiver)
     Data.receiver = t(Matrix(Data.receiver))
+    rownames(Data.sender) = gene.receiver
   }
   if(length(cell.sender)==1){
     Data.sender = as.matrix(Data.sender)
     Data.sender = (Matrix(Data.sender))
+    colnames(Data.sender) = gene.sender
   }else if(length(cell.receiver)==1){
     Data.receiver = as.matrix(Data.receiver)
     Data.receiver = (Matrix(Data.receiver))
+    colnames(Data.sender) = gene.receiver
   }
     
   # add a pseudo-count of 1 to all counts
