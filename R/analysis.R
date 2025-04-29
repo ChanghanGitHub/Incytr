@@ -773,16 +773,20 @@ Cal_scFC <- function(object, count.matrix = NULL,
   if(length(gene.sender)==1){
     Data.sender = as.matrix(Data.sender)
     Data.sender = t(Matrix(Data.sender))
+    rownames(Data.sender) = gene.sender
   }else if(length(gene.receiver)==1){
     Data.receiver = as.matrix(Data.receiver)
     Data.receiver = t(Matrix(Data.receiver))
+    rownames(Data.sender) = gene.receiver
   }
   if(length(cell.sender)==1){
     Data.sender = as.matrix(Data.sender)
     Data.sender = (Matrix(Data.sender))
+    colnames(Data.sender) = gene.sender
   }else if(length(cell.receiver)==1){
     Data.receiver = as.matrix(Data.receiver)
     Data.receiver = (Matrix(Data.receiver))
+    colnames(Data.sender) = gene.receiver
   }
 
   # add a pseudo-count of 1 to all counts
@@ -829,6 +833,72 @@ Cal_scFC <- function(object, count.matrix = NULL,
 
   return(object)
 }
+
+#' Calculate the fold change (log2FoldChange) for the genes in each L-T pathway based on the expression level calculated by Incytr
+#'
+#' @param object Incytr object
+#' @param style select the fold change formula between "log2FC" and "aFC", the default value is "log2FC"
+#' @param correction the value added to all the data to avoid division over zero, the default value is 0.0001
+#' @param q the percentile used to determine "low expression level" and is used when calculating the adjlog2FC, the default value is 0.75
+#'
+#' @return an Incytr object
+#' @export
+Cal_scFC_v2 <- function(object,
+                        style = "log2FC",
+                        correction = 0.00001,
+                        q = NULL){
+
+  if(is.null(style) | !style %in% c("log2FC", "aFC")){
+    style = "log2FC"
+  }
+
+  # gene lists
+  gene.sender = unique(object@pathways$Ligand)
+  gene.receiver = unique(c(object@pathways$Receptor, object@pathways$EM, object@pathways$Target))
+
+  # get the expression data
+  if( nrow(object@expr.bygroup[[1]])>0 ){
+    sender.data_1 = object@expr.bygroup[[1]][ object@expr.bygroup[[1]]$Gene %in% gene.sender,
+                                              c("Gene", object@sender)]
+    receiver.data_1 = object@expr.bygroup[[1]][ object@expr.bygroup[[1]]$Gene %in% gene.receiver,
+                                                c("Gene", object@receiver)]
+  }else{
+    stop("At least one condition data is missing.")
+  }
+
+  if( nrow(object@expr.bygroup[[2]])>0 ){
+    sender.data_2 = object@expr.bygroup[[2]][ object@expr.bygroup[[2]]$Gene %in% gene.sender,
+                                              c("Gene", object@sender)]
+    receiver.data_2 = object@expr.bygroup[[2]][ object@expr.bygroup[[2]]$Gene %in% gene.receiver,
+                                                c("Gene", object@receiver)]
+  }else{
+    stop("At least one condition data is missing.")
+  }
+
+  sender.data = inner_join(sender.data_1, sender.data_2, by = c("Gene"))
+  colnames(sender.data) = c("gene_symbol", "condition1", "condition2")
+  receiver.data = inner_join(receiver.data_1, receiver.data_2, by = c("Gene"))
+  colnames(receiver.data) = c("gene_symbol", "condition1", "condition2")
+
+  # calculate the fold change value
+  sender.fc = Cal_foldchange(sender.data, correction = correction, q = q)[ , c("gene_symbol", "log2FC", "aFC")]
+  receiver.fc = Cal_foldchange(receiver.data, correction = correction, q = q)[ , c("gene_symbol", "log2FC", "aFC")]
+
+  sender.fc = sender.fc[ , c("gene_symbol", style)]
+  colnames(sender.fc)[2] = "log2FoldChange"
+  rownames(sender.fc) = sender.fc$gene_symbol
+  receiver.fc = receiver.fc[ , c("gene_symbol", style)]
+  colnames(receiver.fc)[2] = "log2FoldChange"
+  rownames(receiver.fc) = receiver.fc$gene_symbol
+
+  object@sc_FC[[1]] = sender.fc
+  object@sc_FC[[2]] = receiver.fc
+
+  names(object@sc_FC) = c(paste0("scFC_", object@sender), paste0("scFC_", object@receiver))
+
+  return(object)
+}
+
 
 
 #' Integrate the proteomics and phosphorylation data to the Incytr object, and calculate the log2FC, adjlog2FC
