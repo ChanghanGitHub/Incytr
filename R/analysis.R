@@ -769,6 +769,10 @@ Cal_scFC <- function(object, count.matrix = NULL,
                                 colnames(object@data.raw) %in% cell.sender]
   Data.receiver = object@data.raw[rownames(object@data.raw) %in% gene.receiver,
                                   colnames(object@data.raw) %in% cell.receiver]
+<<<<<<< HEAD
+=======
+
+>>>>>>> 21913f34226f2674baa00975488a0fe7c64f1040
   # check if the matrix only has one gene or one cell
   if(length(gene.sender)==1){
     Data.sender = as.matrix(Data.sender)
@@ -788,7 +792,11 @@ Cal_scFC <- function(object, count.matrix = NULL,
     Data.receiver = (Matrix(Data.receiver))
     colnames(Data.sender) = gene.receiver
   }
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> 21913f34226f2674baa00975488a0fe7c64f1040
   # add a pseudo-count of 1 to all counts
   if(isTRUE(pseudocount)){
     Data.sender = Data.sender + 1
