@@ -1,1 +1,0 @@
-files for Wikipathway mapping
