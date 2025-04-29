@@ -442,7 +442,7 @@ pathway_inference <- function(object,
 #' @param object Incytr object
 #' @param mean_method the method name used to calculate the average expressed value. NULL is the default value, and the arithmetic mean is used if it is "mean".
 #'
-#' @importFrom forcats data.table
+#' @importFrom forcats fct_drop
 #'
 #' @return a data frame
 #' @export
@@ -733,108 +733,6 @@ Cal_SigProb <- function(object, K = 0.5, N = 2, cutoff_SigProb = NULL,
 
 }
 
-
-#' Calculate the fold change (log2FoldChange) for the genes in each L-T pathway based on the scRNA-seq data using DESeq2
-#'
-#' @param object Incytr object
-#' @param count.matrix the count matrix used to calculate the fold change
-#' @param pseudocount add 1 pseudocount to avoid division over zero issue. Default is TRUE.
-#' @param fitType an option from the DESeq2, in default, fitType = c("parametric", "local", "mean", "glmGamPoi")
-#' @param sfType an option from the DESeq2, in default, sfType = c("ratio", "poscounts", "iterate")
-#'
-#' @return an Incytr object
-#' @export
-Cal_scFC <- function(object, count.matrix = NULL,
-                     pseudocount = TRUE,
-                     fitType = c("parametric", "local", "mean", "glmGamPoi"),
-                     sfType = c("ratio", "poscounts", "iterate")){
-
-  if(is.null(count.matrix)){
-    stop("The input 'count.matrix' cannot be null.")
-  }else if(nrow(count.matrix)==0 | ncol(count.matrix)==0){
-    stop("The input 'count.matrix' cannot be empty.")
-  }else{
-    object@data.raw = count.matrix
-  }
-
-  library(DESeq2)
-  # gene lists
-  gene.sender = unique(object@pathways$Ligand)
-  gene.receiver = unique(c(object@pathways$Receptor, object@pathways$EM, object@pathways$Target))
-  # cell barcodes
-  cell.sender = names(object@idents[object@idents == object@sender])
-  cell.receiver = names(object@idents[object@idents == object@receiver])
-  # count matrix for sender and receiver
-  Data.sender = object@data.raw[rownames(object@data.raw) %in% gene.sender,
-                                colnames(object@data.raw) %in% cell.sender]
-  Data.receiver = object@data.raw[rownames(object@data.raw) %in% gene.receiver,
-                                  colnames(object@data.raw) %in% cell.receiver]
-
-  # check if the matrix only has one gene or one cell
-  if(length(gene.sender)==1){
-    Data.sender = as.matrix(Data.sender)
-    Data.sender = t(Matrix(Data.sender))
-    rownames(Data.sender) = gene.sender
-  }else if(length(gene.receiver)==1){
-    Data.receiver = as.matrix(Data.receiver)
-    Data.receiver = t(Matrix(Data.receiver))
-    rownames(Data.sender) = gene.receiver
-  }
-  if(length(cell.sender)==1){
-    Data.sender = as.matrix(Data.sender)
-    Data.sender = (Matrix(Data.sender))
-    colnames(Data.sender) = gene.sender
-  }else if(length(cell.receiver)==1){
-    Data.receiver = as.matrix(Data.receiver)
-    Data.receiver = (Matrix(Data.receiver))
-    colnames(Data.sender) = gene.receiver
-  }
-
-  # add a pseudo-count of 1 to all counts
-  if(isTRUE(pseudocount)){
-    Data.sender = Data.sender + 1
-    Data.receiver = Data.receiver + 1
-  }
-  # condition factors for sender and receiver cells
-  meta = object@meta
-  rownames(meta) = colnames(object@data)
-  condition.sender = meta[cell.sender, ]$condition
-  condition.receiver = meta[cell.receiver, ]$condition
-  # set up colData
-  colData.sender <- data.frame(row.names = colnames(Data.sender), condition = condition.sender)
-  colData.receiver <- data.frame(row.names = colnames(Data.receiver), condition = condition.receiver)
-  # DESeq analysis
-  dds.sender <- DESeqDataSetFromMatrix(Data.sender, colData.sender, design = ~condition)
-
-  try.sender <- try( dds.sender <- DESeq(dds.sender, fitType = fitType, sfType = sfType) )
-  if( "try-error" %in% class(try.sender) ){
-    dds.sender <- estimateSizeFactors(dds.sender)
-    dds.sender <- estimateDispersionsGeneEst(dds.sender)
-    dispersions(dds.sender) <- mcols(dds.sender)$dispGeneEst
-    dds.sender <- nbinomWaldTest(dds.sender)
-  }
-
-  dds.receiver <- DESeqDataSetFromMatrix(Data.receiver, colData.receiver, design = ~condition)
-
-  try.receiver <- try( dds.receiver <- DESeq(dds.receiver, fitType = fitType, sfType = sfType) )
-  if( "try-error" %in% class(try.receiver) ){
-    dds.receiver <- estimateSizeFactors(dds.receiver)
-    dds.receiver <- estimateDispersionsGeneEst(dds.receiver)
-    dispersions(dds.receiver) <- mcols(dds.receiver)$dispGeneEst
-    dds.receiver <- nbinomWaldTest(dds.receiver)
-  }
-  # export the results
-  res.sender = results(dds.sender, contrast = c("condition", object@conditions))
-  res.receiver = results(dds.receiver, contrast = c("condition", object@conditions))
-
-  object@sc_FC[[1]] = res.sender
-  object@sc_FC[[2]] = res.receiver
-
-  names(object@sc_FC) = c(paste0("DESeq2_", object@sender), paste0("DESeq2_", object@receiver))
-
-  return(object)
-}
-
 #' Calculate the fold change (log2FoldChange) for the genes in each L-T pathway based on the expression level calculated by Incytr
 #'
 #' @param object Incytr object
@@ -842,12 +740,13 @@ Cal_scFC <- function(object, count.matrix = NULL,
 #' @param correction the value added to all the data to avoid division over zero, the default value is 0.0001
 #' @param q the percentile used to determine "low expression level" and is used when calculating the adjlog2FC, the default value is 0.75
 #'
+#' @importFrom forcats fct_drop
 #' @return an Incytr object
 #' @export
-Cal_scFC_v2 <- function(object,
-                        style = "log2FC",
-                        correction = 0.00001,
-                        q = NULL){
+Cal_scFC <- function(object,
+                     style = "log2FC",
+                     correction = 0.00001,
+                     q = NULL){
 
   if(is.null(style) | !style %in% c("log2FC", "aFC")){
     style = "log2FC"

@@ -2,30 +2,22 @@
 % Please edit documentation in R/analysis.R
 \name{Cal_scFC}
 \alias{Cal_scFC}
-\title{Calculate the fold change (log2FoldChange) for the genes in each L-T pathway based on the scRNA-seq data using DESeq2}
+\title{Calculate the fold change (log2FoldChange) for the genes in each L-T pathway based on the expression level calculated by Incytr}
 \usage{
-Cal_scFC(
-  object,
-  count.matrix = NULL,
-  pseudocount = TRUE,
-  fitType = c("parametric", "local", "mean", "glmGamPoi"),
-  sfType = c("ratio", "poscounts", "iterate")
-)
+Cal_scFC(object, style = "log2FC", correction = 1e-05, q = NULL)
 }
 \arguments{
 \item{object}{Incytr object}
 
-\item{count.matrix}{the count matrix used to calculate the fold change}
+\item{style}{select the fold change formula between "log2FC" and "aFC", the default value is "log2FC"}
 
-\item{pseudocount}{add 1 pseudocount to avoid division over zero issue. Default is TRUE.}
+\item{correction}{the value added to all the data to avoid division over zero, the default value is 0.0001}
 
-\item{fitType}{an option from the DESeq2, in default, fitType = c("parametric", "local", "mean", "glmGamPoi")}
-
-\item{sfType}{an option from the DESeq2, in default, sfType = c("ratio", "poscounts", "iterate")}
+\item{q}{the percentile used to determine "low expression level" and is used when calculating the adjlog2FC, the default value is 0.75}
 }
 \value{
 an Incytr object
 }
 \description{
-Calculate the fold change (log2FoldChange) for the genes in each L-T pathway based on the scRNA-seq data using DESeq2
+Calculate the fold change (log2FoldChange) for the genes in each L-T pathway based on the expression level calculated by Incytr
 }

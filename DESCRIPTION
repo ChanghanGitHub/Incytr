@@ -19,8 +19,7 @@ Imports:
     plotrix,
     base,
     Rcpp,
-    methods,
-    DESeq2
+    methods
 Suggests: 
     knitr,
     rmarkdown,
