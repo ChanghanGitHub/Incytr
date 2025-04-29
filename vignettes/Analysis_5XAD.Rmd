@@ -106,10 +106,7 @@ Incytr <- Cal_SigProb(Incytr, K = 0.5, N = 2, cutoff_SigProb = 0.0, correction =
 
 Compute the fold change for each gene between conditions. This step is optional and will not affect the pathway evaluation results. 
 ```{r}
-Incytr <- Cal_scFC(Incytr,
-                   count.matrix = Data.input@assays$RNA@counts,
-                   pseudocount = TRUE,
-                   fitType='mean')
+Incytr <- Cal_scFC(Incytr)
 ```
 
 
