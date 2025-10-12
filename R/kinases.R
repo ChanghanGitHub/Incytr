@@ -175,6 +175,10 @@ Integr_kinasedata <- function(object,
   # find all the kinase genes that will be used
   geneuse <- unique(k.gene)
 
+  if(length(celluse)==0 | length(geneuse)==0){
+    stop("No gene/cell found.")
+  }
+
   # expression data of condition 1 (row: cell; column: gene; the last column: cell group label)
   M1 = as.matrix(object@data[ geneuse, celluse$condition1])
   if(length(geneuse)==1){
@@ -372,6 +376,10 @@ Kinase_exploration <- function(object,
 
   # find all the kinase genes that will be used
   geneuse <- unique(y$motif.geneName)
+
+  if(length(celluse)==0 | length(geneuse)==0){
+    stop("No gene/cell found.")
+  }
 
   # expression data of condition 1 (row: cell; column: gene; the last column: cell group label)
   M1 = as.matrix(object@data[ geneuse, celluse$condition1])
