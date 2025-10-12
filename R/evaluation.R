@@ -257,11 +257,11 @@ Merge_results <- function(results.list, cutoff_PDS = NULL, group = "Both", selec
 
   if(!is.null(select.top)){
     df %>%
-      arrange(desc(df$PDS)) %>%
+      dplyr::arrange(desc(df$PDS)) %>%
       slice_head(n = select.top) -> df.top
 
     df %>%
-      arrange(desc(df$PDS)) %>%
+      dplyr::arrange(desc(df$PDS)) %>%
       slice_tail(n = select.top) -> df.bottom
 
     df <- rbind(df.top, df.bottom)
